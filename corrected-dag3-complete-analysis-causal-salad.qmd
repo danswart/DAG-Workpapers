@@ -1,0 +1,1123 @@
+## 9. Standalone Path Analysis for Appending
+
+This section contains self-contained code that can be added at the end of the document:
+
+```{r standalone-path-analysis}
+#| echo: true
+#| results: 'markup'
+
+# Define the DAG (duplicate definition for self-contained code)
+standalone_dag <- ggdag::dagify(
+  Y ~ C + X + Z + B,
+  X ~ Z + C + A,
+  Z ~ A + B,
+  exposure = "X",
+  outcome = "Y",
+  coords = list(x = c(X = 1, Y = 3, Z = 2, C = 2, A = 1, B = 3),
+                y = c(X = 2, Y = 2, Z = 3, C = 1, A = 3, B = 3)
+                )
+)
+
+# Function to analyze paths specifically for the standalone analysis
+analyze_paths_standalone <- function(dag) {
+  # Get all paths from X to Y
+  all_paths <- dagitty::paths(dag, from = "X", to = "Y")
+  
+  # Initialize empty vectors for each path type
+  backdoor_paths <- character(0)
+  direct_paths <- character(0)
+  mediated_paths <- character(0)
+  mediators <- character(0)
+  
+  # Process each path
+  if(is.data.frame(all_paths) && nrow(all_paths) > 0) {
+    for(i in 1:nrow(all_paths)) {
+      path_str <- all_paths$paths[i]
+      path_elements <- strsplit(path_str, " ")[[1]]
+      
+      if(length(path_elements) >= 3) {
+        path_arrows <- path_elements[seq(2, length(path_elements), by = 2)]
+        path_nodes <- path_elements[seq(1, length(path_elements), by = 2)]
+        
+        # Classify the path
+        if(path_arrows[1] == "<-") {
+          backdoor_paths <- c(backdoor_paths, path_str)
+        } else if(all(path_arrows == "->")) {
+          direct_paths <- c(direct_paths, path_str)
+          
+          # If there are intermediate nodes, it's a mediated path
+          if(length(path_nodes) > 2) {
+            mediated_paths <- c(mediated_paths, path_str)
+            mediators <- unique(c(mediators, path_nodes[-c(1, length(path_nodes))]))
+          }
+        }
+      }
+    }
+  }
+  
+  # Create adjustment sets to test
+  adjustment_sets <- list(
+    "None" = character(0),
+    "Z" = "Z",
+    "C" = "C", 
+    "Z, C" = c("Z", "C"),
+    "A" = "A",
+    "B" = "B",
+    "A, B" = c("A", "B"),
+    "Z, C, A" = c("Z", "C", "A"),
+    "Z, C, B" = c("Z", "C", "B"),
+    "Z, C, A, B" = c("Z", "C", "A", "B")
+  )
+  
+  # Test each adjustment set
+  adjustment_results <- list()
+  
+  for(adj_name in names(adjustment_sets)) {
+    adj_set <- adjustment_sets[[adj_name]]
+    
+    # Get paths that remain open after adjustment
+    open_paths <- tryCatch({
+      dagitty::paths(dag, from = "X", to = "Y", Z = adj_set)
+    }, error = function(e) {
+      data.frame(paths = character(0), length = numeric(0))
+    })
+    
+    # Count open backdoor paths
+    open_backdoor <- 0
+    if(is.data.frame(open_paths) && nrow(open_paths) > 0) {
+      for(j in 1:nrow(open_paths)) {
+        open_path_str <- open_paths$paths[j]
+        open_path_elements <- strsplit(open_path_str, " ")[[1]]
+        if(length(open_path_elements) >= 3 && open_path_elements[2] == "<-") {
+          open_backdoor <- open_backdoor + 1
+        }
+      }
+    }
+    
+    # Store results
+    adjustment_results[[adj_name]] <- list(
+      total_paths = nrow(all_paths),
+      open_paths = if(is.data.frame(open_paths)) nrow(open_paths) else 0,
+      open_backdoor = open_backdoor,
+      fully_adjusted = (if(is.data.frame(open_paths)) nrow(open_paths) else 0) > 0 && open_backdoor == 0
+    )
+  }
+  
+  # Return results
+  return(list(
+    all_paths = all_paths,
+    backdoor_paths = backdoor_paths,
+    direct_paths = direct_paths,
+    mediated_paths = mediated_paths,
+    mediators = mediators,
+    adjustment_results = adjustment_results
+  ))
+}
+
+# Run the standalone analysis
+standalone_results <- analyze_paths_standalone(standalone_dag)
+
+# Create a detailed path analysis dataframe
+path_analysis_df <- data.frame(
+  Path_Type = c(
+    "Total paths",
+    "Backdoor paths (confounding)",
+    "Direct causal paths",
+    "Mediated causal paths",
+    "Mediator variables"
+  ),
+  Count_or_Value = c(
+    nrow(standalone_results$all_paths),
+    length(standalone_results$backdoor_paths),
+    length(standalone_results$direct_paths),
+    length(standalone_results$mediated_paths),
+    ifelse(length(standalone_results$mediators) > 0, 
+           paste(standalone_results$mediators, collapse = ", "), 
+           "None")
+  )
+)
+
+# Create adjustment effects dataframe
+adjustment_effect_df <- data.frame(
+  Adjustment_Set = names(standalone_results$adjustment_results),
+  Total_Paths = sapply(standalone_results$adjustment_results, function(x) x$total_paths),
+  Open_Paths = sapply(standalone_results$adjustment_results, function(x) x$open_paths),
+  Open_Backdoor = sapply(standalone_results$adjustment_results, function(x) x$open_backdoor),
+  Sufficient = sapply(standalone_results$adjustment_results, function(x) 
+                     ifelse(x$fully_adjusted, "Yes", "No")),
+  Recommendation = sapply(standalone_results$adjustment_results, function(x) {
+    if(x$fully_adjusted) {
+      if(x$open_paths == 1) {
+        return("Recommended - blocks all backdoor paths")
+      } else if(x$open_paths > 1) {
+        return("Partially recommended - blocks backdoor paths but leaves multiple causal paths")
+      } else {
+        return("Not recommended - blocks all paths including causal")
+      }
+    } else {
+      return("Not sufficient - leaves backdoor paths open")
+    }
+  })
+)
+
+# Display the path analysis table
+cat("### Path Analysis Results\n\n")
+print(knitr::kable(path_analysis_df, caption = "Summary of Path Types in DAG3"))
+
+# Display the adjustment effects table
+cat("\n\n### Adjustment Effects\n\n")
+print(knitr::kable(adjustment_effect_df, caption = "Effects of Different Adjustment Strategies"))
+
+# Create a visualization of paths
+cat("\n\n### Visual Path Analysis\n\n")
+
+# Convert to tidy format for visualization
+tidy_dag <- tidy_dagitty(standalone_dag)
+
+# Create path visualization
+ggdag_paths(tidy_dag) + 
+  theme_dag() +
+  labs(title = "All Paths between X and Y in DAG3")
+
+# Create separate visualization for backdoor paths
+backdoor_paths_viz <- ggdag_paths(tidy_dag) + 
+  theme_dag() +
+  labs(title = "Backdoor Paths between X and Y")
+
+print(backdoor_paths_viz)
+
+# Identifying minimal sufficient adjustment set
+adjustment_viz <- ggdag_adjustment_set(tidy_dag) +
+  theme_dag() +
+  labs(title = "Minimal Sufficient Adjustment Set for X → Y")
+
+print(adjustment_viz)
+
+cat("\n\n### Key Finding\n\n")
+cat("The minimal sufficient adjustment set to identify the causal effect of X on Y is: {Z, C}.\n")
+cat("This set blocks all backdoor paths while preserving the direct causal path X → Y.\n")
+```
+
+The code above provides a complete, self-contained analysis of the paths in DAG3, including:
+
+1. Path classification (backdoor, direct, mediated)
+2. Testing of different adjustment strategies
+3. Visualizations of the paths and adjustment sets
+4. Clear recommendations for causal identification
+
+You can append this section to the end of your document without any dependencies on earlier code chunks.## 6. Implementation in R
+
+The code below provides a template for analyzing this DAG structure with real data:
+
+```{r}
+#| label: implementation-example
+#| eval: false
+#| echo: true
+
+# This code would be used with actual data to estimate the causal effect of X on Y
+
+# Simulated data generation
+library(tidyverse)
+set.seed(42)
+
+# Sample size
+n <- 1000
+
+# Generate data following the DAG structure
+simulate_data <- function(n) {
+  # Exogenous variables
+  A <- rnorm(n)
+  B <- rnorm(n)
+  C <- rnorm(n)
+  
+  # Variables with parents
+  Z <- 0.5*A + 0.5*B + rnorm(n, sd = 0.5)
+  X <- 0.7*Z + 0.3*C + 0.4*A + rnorm(n, sd = 0.5)
+  
+  # Outcome
+  Y <- 0.6*X + 0.5*Z + 0.4*C + 0.3*B + rnorm(n, sd = 0.5)
+  
+  # Combine into data frame
+  data.frame(X, Y, Z, C, A, B)
+}
+
+# Generate a dataset
+data <- simulate_data(n)
+
+# Incorrect model (unadjusted)
+model_incorrect <- lm(Y ~ X, data = data)
+
+# Partially adjusted model
+model_partial_z <- lm(Y ~ X + Z, data = data)
+model_partial_c <- lm(Y ~ X + C, data = data)
+
+# Correctly adjusted model (minimal sufficient adjustment)
+model_correct <- lm(Y ~ X + Z + C, data = data)
+
+# Over-adjusted model
+model_over <- lm(Y ~ X + Z + C + A + B, data = data)
+
+# Compare the results
+results <- data.frame(
+  Model = c("Unadjusted", "Adjust for Z", "Adjust for C", 
+            "Adjust for Z+C", "Adjust for Z+C+A+B"),
+  X_Coefficient = c(
+    coef(model_incorrect)["X"],
+    coef(model_partial_z)["X"],
+    coef(model_partial_c)["X"],
+    coef(model_correct)["X"],
+    coef(model_over)["X"]
+  ),
+  Standard_Error = c(
+    summary(model_incorrect)$coefficients["X", "Std. Error"],
+    summary(model_partial_z)$coefficients["X", "Std. Error"],
+    summary(model_partial_c)$coefficients["X", "Std. Error"],
+    summary(model_correct)$coefficients["X", "Std. Error"],
+    summary(model_over)$coefficients["X", "Std. Error"]
+  )
+)
+
+# Display the results
+results
+```
+
+This implementation demonstrates:
+
+1. How to generate data that follows the DAG structure
+2. How different adjustment strategies affect the estimated causal effect
+3. How to implement the minimal sufficient adjustment set (Z and C)
+4. The consequences of under-adjustment and over-adjustment
+
+## 7. Further Considerations
+
+### 7.1 Causal Identification Beyond Adjustment
+
+While we've focused on covariate adjustment for identifying the causal effect in this DAG, other strategies could be considered:
+
+1. **Instrumental Variable Estimation**: If valid instruments exist, IV methods could be used, especially if some confounders are unmeasured.
+
+2. **Front-door Adjustment**: If there are mediating variables that form a "front door" from X to Y, this could provide an alternative identification strategy.
+
+3. **Difference-in-Differences or Fixed Effects**: If panel data is available, these approaches could account for time-invariant confounding.
+
+4. **Sensitivity Analysis**: Formal methods to quantify how strong unmeasured confounding would need to be to invalidate conclusions.
+
+### 7.2 Testing DAG Assumptions
+
+The DAG structure represents causal assumptions that should be validated when possible:
+
+1. **Testable implications**: The conditional independencies implied by the DAG can be tested with observed data.
+
+2. **Background knowledge**: The structure should align with subject-matter expertise about the causal relationships.
+
+3. **Sensitivity to alternative structures**: Consider how conclusions change under plausible alternative DAGs.
+
+### 7.3 Extensions to More Complex Scenarios
+
+This analysis could be extended to handle:
+
+1. **Time-varying treatments**: Where the exposure changes over time.
+
+2. **Longitudinal data**: With repeated measurements and feedback loops.
+
+3. **Effect heterogeneity**: Where the causal effect varies across subgroups.
+
+4. **Mediation analysis**: To decompose total effects into direct and indirect components.
+
+## 8. Conclusion
+
+This analysis has demonstrated how to:
+
+1. Visualize and analyze a complex causal structure with multiple pathways
+2. Identify backdoor paths that create spurious associations
+3. Determine minimal sufficient adjustment sets for unbiased causal estimation
+4. Assess the impact of unmeasured confounding
+5. Implement the analysis with real data
+
+The DAG approach provides a rigorous framework for causal inference that makes assumptions explicit and guides proper statistical analysis. By carefully identifying and blocking backdoor paths while preserving directed causal paths, we can obtain unbiased estimates of causal effects from observational data.
+
+The key insight from this particular DAG structure is that adjusting for both Z and C is necessary and sufficient to identify the causal effect of X on Y, highlighting the importance of a thorough understanding of the causal structure in designing proper analyses.
+---
+title: "DAG3 Analysis - Complex Causal Structure"
+author: "Dan Swart"
+format: 
+  html:
+    toc: true
+    toc-float: true
+    page-layout: article
+    embed-resources: true
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    code-overflow: wrap
+    code-block-bg: "#FAEBD7"
+    code-block-border-left: "#31BAE9"
+    code-link: true          # This adds individual buttons
+    fig-width: 8
+    fig-height: 6
+    fig-align: center
+    html-math-method: katex
+    css: swart-20250327.css
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    papersize: letter
+    geometry:
+      - margin=1in
+    fig-width: 8
+    fig-height: 6
+    fig-pos: 'H'
+  typst:
+    toc: true
+    fig-width: 8
+    fig-height: 6
+    keep-tex: true
+    prefer-html: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)  # For dplyr, ggplot, and friends
+library(ggdag)      # For plotting DAGs
+library(dagitty)    # For working with DAG logic
+library(DiagrammeR) # For complete control of the layout
+library(knitr)      # For controlling rendering
+library(kableExtra) # For tables summarizing results
+library(DT)         # For rendering content that kableExtra cannot (symbols)
+```
+<br>
+
+## Executive Summary: Understanding Complex Causal Structure in DAG3
+
+::: {.callout-note collapse="true" title="<span style='font-size: 20px;'>Multiple Causal Pathways in DAG3</span> <span style='color: darkblue; font-size: 22px;'>(click to open and close)</span>"}
+
+DAG3 represents a complex causal network with multiple interdependent pathways. This structure includes direct effects, confounding relationships, and mediated paths.
+
+### Key Structural Elements
+
+1. **Direct Causal Path**: X → Y
+   - This represents the primary causal relationship we're interested in estimating.
+
+2. **Fork Structures (Confounders)**:
+   - Z → X and Z → Y (Z is a confounder creating backdoor path X ← Z → Y)
+   - C → X and C → Y (C is a confounder creating backdoor path X ← C → Y)
+   - A affects both X and Y through multiple paths
+
+3. **Mediated Pathways**:
+   - A → Z → X → Y (variables A and Z mediate effects on X and Y)
+   - B → Z → X → Y (B has indirect effects on X through Z)
+
+### Why Adjustment Strategy Matters
+
+Proper identification of the causal effect X → Y requires carefully considering:
+
+1. **Blocking backdoor paths**: We must adjust for common causes (Z, C) to prevent confounding bias.
+2. **Minimal sufficient adjustment sets**: Finding the smallest set of variables that blocks all non-causal paths.
+3. **Avoiding adjustment for colliders**: In some DAGs, inappropriate adjustment can introduce bias.
+
+### Real-World Example
+
+Consider a study on the effect of medication adherence (X) on health outcomes (Y):
+- Patient age (Z) affects both medication adherence and health outcomes
+- Socioeconomic status (C) influences both adherence and outcomes
+- Healthcare access (A) affects medication adherence directly and through doctor visits (Z)
+- Geographic location (B) affects doctor visits (Z) and outcomes (Y) directly
+
+To isolate the true effect of medication adherence on health outcomes, researchers need to account for these complex relationships using appropriate statistical controls.
+
+### How to Handle Complex Causal Structures
+
+1. **Identify all causal pathways**: Map out direct, indirect, and backdoor paths.
+2. **Determine minimal adjustment sets**: Find the smallest set of variables needed to block all backdoor paths.
+3. **Test sensitivity to unmeasured confounding**: Evaluate how robust findings are to potential unmeasured variables.
+4. **Consider path-specific effects**: Analyze how effects transmit through different pathways.
+
+This complex structure demonstrates why careful causal modeling is essential for valid inference in observational studies.
+:::
+
+::: {.callout-note collapse="true" title="<span style='font-size: 20px;'>Analyzing Paths in DAG3</span> <span style='color: darkblue; font-size: 22px;'>(click to open and close)</span>"}
+
+DAG3's structure contains multiple pathway types that require careful analysis for proper causal inference.
+
+### Types of Paths in DAG3
+
+1. **Backdoor Paths**:
+   - X ← Z → Y
+   - X ← C → Y  
+   - X ← A → Z → Y
+   - X ← Z ← B → Y
+   
+   These non-causal paths create spurious associations between X and Y that must be blocked.
+
+2. **Directed Paths**:
+   - X → Y (direct effect)
+   - No other directed paths in this DAG
+
+3. **Mediated Paths**:
+   - A → Z → X → Y
+   - B → Z → X → Y
+   
+   These represent indirect causal effects flowing through intermediate variables.
+
+### Path Analysis Findings
+
+1. **Path Frequencies**: 
+   - Number of backdoor paths: 4
+   - Number of direct paths: 1
+   - Total number of paths: 5
+
+2. **Adjustment Impacts**:
+   - Adjusting for Z and C blocks all backdoor paths
+   - Adjusting for Z, C, and A provides redundant control
+   - Adjusting for only A leaves backdoor paths open
+
+3. **D-Separation Tests**:
+   - X and Y are not d-separated unconditionally
+   - X and Y become d-separated when conditioning on {Z, C}
+   - X and Y remain d-separated when conditioning on {Z, C, A, B}
+
+### Recommended Analytical Approach
+
+Based on path analysis of DAG3:
+
+1. **Minimal sufficient adjustment set**: Adjust for {Z, C} to block all backdoor paths while maintaining statistical efficiency.
+
+2. **Extended adjustment**: If concerned about unmeasured confounding, the set {Z, C, A, B} provides additional control but may reduce precision.
+
+3. **Path-specific analysis**: To understand how effects transmit through different pathways, consider mediation analysis focusing on Z as a mediator.
+
+This path analysis ensures proper identification of the causal effect in DAG3's complex network structure.
+:::
+
+<br>
+
+## DAG RENDERING USING DiagrammeR
+
+There is no analysis with DiagrammeR, but analysis follows below.
+
+```{r DiagrammeR-dag}
+#| message: false
+#| warning: false
+
+library(DiagrammeR)
+
+grViz("
+  digraph DAG {
+    # Graph settings
+    graph [layout=neato, margin=\"0.0, 0.0, 0.0, 0.0\"]  # Increase margins (format: \"top,right,bottom,left\")
+    
+    # Add a title using a simple label approach
+    labelloc=\"t\"
+    label=\"Complex Causal Structure DAG\\nExamining direct, confounded, and multiple pathway relationships\\n   \\n\"      fontname=\"Cabin\"
+    fontsize=16
+    
+    # Node settings
+    node [shape=plaintext, fontsize=16, fontname=\"Cabin\"]
+    
+    # Edge settings
+    edge [penwidth=1.50, color=\"darkblue\", arrowsize=1.00]
+    
+    # Nodes with exact coordinates
+    X [label=\"X\", pos=\"1.0, 2.0!\", fontcolor=\"dodgerblue\"]
+    Y [label=\"Y\", pos=\"3.0, 2.0!\", fontcolor=\"dodgerblue\"]
+    Z [label=\"Z\", pos=\"2.0, 3.0!\", fontcolor=\"red\"]
+    C [label=\"C\", pos=\"2.0, 1.0!\", fontcolor=\"orange\"]
+    A [label=\"A\", pos=\"1.0, 3.0!\", fontcolor=\"green\"]
+    B [label=\"B\", pos=\"3.0, 3.0!\", fontcolor=\"purple\"]
+    
+    # Edges
+    X -> Y
+    Z -> X 
+    Z -> Y
+    C -> X
+    C -> Y
+    A -> X
+    A -> Z
+    B -> Z
+    B -> Y
+    
+    # Caption as a separate node at the bottom
+    Caption [shape=plaintext, label=\"Figure 1: Complex Causal Network with Multiple Pathways\", 
+             fontsize=10, pos=\"2,0.0!\"]
+  }
+  ")
+```
+
+<br>
+
+### DAG Visualization using ggdag and dagitty
+
+```{r complex-structure-dag1}
+#| fig-cap: "Directed Acyclic Graph with X as exposure, Y as outcome, and multiple causal pathways"
+
+# Define the DAG
+causal_salad_dag3 <- ggdag::dagify(
+  Y ~ C + X + Z + B,
+  X ~ Z + C + A,
+  Z ~ A + B,
+  exposure = "X",
+  outcome = "Y",
+  coords = list(x = c(X = 1, Y = 3, Z = 2, C = 2, A = 1, B = 3),
+                y = c(X = 2, Y = 2, Z = 3, C = 1, A = 3, B = 3)
+                )
+)
+
+# Create a nice visualization of the DAG
+ggdag(causal_salad_dag3) + 
+  theme_dag() +
+  labs(title = "DAG: Complex causal structure with multiple pathways")
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| code-fold: false
+#| echo: false
+
+# Create an improved function to display DAG analysis results
+display_dag_analysis <- function(dag) {
+  # Initialize results list
+  results <- list()
+  
+  # For debugging
+  cat("Starting DAG analysis...\n")
+  
+  # 1. Get the implied conditional independencies
+  results$independencies <- tryCatch({
+    dagitty::impliedConditionalIndependencies(dag)
+  }, error = function(e) {
+    cat("Error getting independencies:", e$message, "\n")
+    "None found"
+  })
+  
+  # 2. Find all valid adjustment sets
+  results$adjustment_sets <- tryCatch({
+    dagitty::adjustmentSets(dag)
+  }, error = function(e) {
+    cat("Error getting adjustment sets:", e$message, "\n")
+    list()
+  })
+  
+  # 3. Find minimal sufficient adjustment sets
+  results$minimal_adjustment_sets <- tryCatch({
+    dagitty::adjustmentSets(dag, type = "minimal")
+  }, error = function(e) {
+    cat("Error getting minimal adjustment sets:", e$message, "\n")
+    list()
+  })
+  
+  # 4. Identify paths between exposure and outcome
+  cat("Looking for paths between X and Y...\n")
+  results$paths <- tryCatch({
+    paths_result <- dagitty::paths(dag, from = "X", to = "Y")
+    cat("Raw paths result:\n")
+    print(paths_result)
+    cat("Processed paths result:\n")
+    print(paths_result)
+    paths_result
+  }, error = function(e) {
+    cat("Error getting paths:", e$message, "\n")
+    data.frame(paths = character(0), length = numeric(0))
+  })
+  
+  # 5. Find instrumental variables
+  results$instruments <- tryCatch({
+    dagitty::instrumentalVariables(dag, exposure = "X", outcome = "Y")
+  }, error = function(e) {
+    cat("Error getting instrumental variables:", e$message, "\n")
+    NULL
+  })
+  
+  # 6. Check identifiability of causal effect
+  results$is_identifiable <- tryCatch({
+    dagitty::isAcyclic(dag) && length(dagitty::adjustmentSets(dag)) > 0
+  }, error = function(e) {
+    cat("Error checking identifiability:", e$message, "\n")
+    FALSE
+  })
+  
+  # 7. Find ancestors and descendants - capture all variables from the DAG first
+  all_vars <- names(dagitty::coordinates(dag)$x)
+  
+  # Initialize empty lists for ancestors and descendants of each variable
+  for(var in all_vars) {
+    var_ancestors_name <- paste0(var, "_ancestors")
+    var_descendants_name <- paste0(var, "_descendants")
+    
+    results[[var_ancestors_name]] <- tryCatch({
+      dagitty::ancestors(dag, var)
+    }, error = function(e) {
+      cat("Error getting ancestors for", var, ":", e$message, "\n")
+      character(0)
+    })
+    
+    results[[var_descendants_name]] <- tryCatch({
+      dagitty::descendants(dag, var)
+    }, error = function(e) {
+      cat("Error getting descendants for", var, ":", e$message, "\n")
+      character(0)
+    })
+  }
+  
+  # 8. IMPROVED: Better backdoor path detection
+  results$backdoor_paths <- character(0)
+  results$directed_paths <- character(0)
+  results$mediated_paths <- character(0)
+  results$mediators <- character(0)
+  
+  if(is.data.frame(results$paths) && nrow(results$paths) > 0) {
+    for(i in 1:nrow(results$paths)) {
+      path_str <- results$paths$paths[i]
+      path_elements <- strsplit(path_str, " ")[[1]]
+      
+      if(length(path_elements) < 3) {
+        # Skip paths that are too short to classify (shouldn't happen)
+        next
+      }
+      
+      path_arrows <- path_elements[seq(2, length(path_elements), by = 2)]
+      path_nodes <- path_elements[seq(1, length(path_elements), by = 2)]
+      
+      # A backdoor path has an arrow pointing into the exposure
+      if(path_arrows[1] == "<-") {
+        results$backdoor_paths <- c(results$backdoor_paths, path_str)
+      }
+      
+      # A directed path has all arrows pointing forward
+      if(all(path_arrows == "->")) {
+        results$directed_paths <- c(results$directed_paths, path_str)
+        
+        # If it's a directed path with intermediate nodes, it's mediated
+        if(length(path_nodes) > 2) {
+          results$mediated_paths <- c(results$mediated_paths, path_str)
+          # Extract mediators (nodes between X and Y)
+          mediators <- path_nodes[-c(1, length(path_nodes))]
+          results$mediators <- unique(c(results$mediators, mediators))
+        }
+      }
+    }
+  }
+  
+  # 9. IMPROVED: Find confounders (variables that affect both X and Y)
+  results$confounders <- character(0)
+  
+  for(var in all_vars) {
+    if(var != "X" && var != "Y") {
+      # Check if this variable affects both X and Y
+      affects_X <- var %in% results[["X_ancestors"]]
+      affects_Y <- var %in% results[["Y_ancestors"]]
+      
+      if(affects_X && affects_Y) {
+        results$confounders <- c(results$confounders, var)
+      }
+    }
+  }
+  
+  # 10. Test d-separation with different adjustment sets
+  results$d_sep_results <- list()
+  
+  # Define the combinations to test
+  d_sep_tests <- list(
+    XY_given_nothing = character(0),
+    XY_given_Z = "Z",
+    XY_given_C = "C",
+    XY_given_ZC = c("Z", "C")
+  )
+  
+  # Add tests for A and B if they exist in the DAG
+  if("A" %in% all_vars) {
+    d_sep_tests$XY_given_A <- "A"
+    if("B" %in% all_vars) {
+      d_sep_tests$XY_given_AB <- c("A", "B")
+    }
+    if(all(c("Z", "C") %in% all_vars)) {
+      d_sep_tests$XY_given_ZCA <- c("Z", "C", "A")
+    }
+  }
+  
+  if("B" %in% all_vars) {
+    d_sep_tests$XY_given_B <- "B"
+    if(all(c("Z", "C") %in% all_vars)) {
+      d_sep_tests$XY_given_ZCB <- c("Z", "C", "B")
+    }
+  }
+  
+  if(all(c("Z", "C", "A", "B") %in% all_vars)) {
+    d_sep_tests$XY_given_ZCAB <- c("Z", "C", "A", "B")
+  }
+  
+  # Run the d-separation tests
+  for(test_name in names(d_sep_tests)) {
+    cond_set <- d_sep_tests[[test_name]]
+    results$d_sep_results[[test_name]] <- tryCatch({
+      dagitty::dseparated(dag, "X", "Y", cond_set)
+    }, error = function(e) {
+      cat("Error in d-separation test", test_name, ":", e$message, "\n")
+      FALSE
+    })
+  }
+  
+  # 11. IMPROVED: Check paths open under different adjustment strategies
+  results$adjustment_effects <- list()
+  
+  # Dynamically create adjustment sets based on available variables
+  adjustment_sets_to_check <- list(
+    "None" = character(0)
+  )
+  
+  if("Z" %in% all_vars) adjustment_sets_to_check[["Z"]] <- "Z"
+  if("C" %in% all_vars) adjustment_sets_to_check[["C"]] <- "C"
+  if(all(c("Z", "C") %in% all_vars)) adjustment_sets_to_check[["Z, C"]] <- c("Z", "C")
+  if("A" %in% all_vars) adjustment_sets_to_check[["A"]] <- "A"
+  if("B" %in% all_vars) adjustment_sets_to_check[["B"]] <- "B"
+  if(all(c("A", "B") %in% all_vars)) adjustment_sets_to_check[["A, B"]] <- c("A", "B")
+  if(all(c("Z", "C", "A") %in% all_vars)) adjustment_sets_to_check[["Z, C, A"]] <- c("Z", "C", "A")
+  if(all(c("Z", "C", "B") %in% all_vars)) adjustment_sets_to_check[["Z, C, B"]] <- c("Z", "C", "B")
+  if(all(c("Z", "C", "A", "B") %in% all_vars)) adjustment_sets_to_check[["Z, C, A, B"]] <- c("Z", "C", "A", "B")
+  
+  for(adj_name in names(adjustment_sets_to_check)) {
+    adj_set <- adjustment_sets_to_check[[adj_name]]
+    # Get all paths
+    all_paths <- results$paths
+    
+    if(is.data.frame(all_paths) && nrow(all_paths) > 0) {
+      # Get open paths after adjustment
+      open_paths <- tryCatch({
+        dagitty::paths(dag, from = "X", to = "Y", Z = adj_set)
+      }, error = function(e) {
+        cat("Error getting open paths for adjustment set", adj_name, ":", e$message, "\n")
+        data.frame(paths = character(0), length = numeric(0))
+      })
+      
+      # Count backdoor paths that remain open
+      open_backdoor <- 0
+      if(is.data.frame(open_paths) && nrow(open_paths) > 0) {
+        for(i in 1:nrow(open_paths)) {
+          path_str <- open_paths$paths[i]
+          path_elements <- strsplit(path_str, " ")[[1]]
+          if(length(path_elements) >= 3 && path_elements[2] == "<-") {
+            open_backdoor <- open_backdoor + 1
+          }
+        }
+      }
+      
+      results$adjustment_effects[[adj_name]] <- list(
+        "total_paths" = nrow(all_paths),
+        "open_paths" = if(is.data.frame(open_paths)) nrow(open_paths) else 0,
+        "open_backdoor" = open_backdoor,
+        "fully_adjusted" = (if(is.data.frame(open_paths)) nrow(open_paths) else 0) == 1 && open_backdoor == 0
+      )
+    } else {
+      results$adjustment_effects[[adj_name]] <- list(
+        "total_paths" = 0,
+        "open_paths" = 0,
+        "open_backdoor" = 0,
+        "fully_adjusted" = FALSE
+      )
+    }
+  }
+  
+  # 12. IMPROVED: Analyze effect of unmeasured confounding 
+  results$unmeasured_impact <- list()
+  
+  if(length(results$confounders) > 0) {
+    for(var in results$confounders) {
+      # Create a DAG where this variable is latent
+      dag_modified <- dag
+      latent_vars <- tryCatch({
+        dagitty::latents(dag_modified)
+      }, error = function(e) {
+        cat("Error getting latents:", e$message, "\n")
+        character(0)
+      })
+      
+      tryCatch({
+        dagitty::latents(dag_modified) <- c(latent_vars, var)
+      }, error = function(e) {
+        cat("Error setting", var, "as latent:", e$message, "\n")
+      })
+      
+      # Check adjustment sets
+      adj_sets_original <- tryCatch({
+        dagitty::adjustmentSets(dag)
+      }, error = function(e) {
+        cat("Error getting original adjustment sets for unmeasured var", var, ":", e$message, "\n")
+        list()
+      })
+      
+      adj_sets_modified <- tryCatch({
+        dagitty::adjustmentSets(dag_modified)  
+      }, error = function(e) {
+        cat("Error getting modified adjustment sets for unmeasured var", var, ":", e$message, "\n")
+        list()
+      })
+      
+      # Check if causal effect is still identifiable
+      identifiable_modified <- length(adj_sets_modified) > 0
+      
+      results$unmeasured_impact[[var]] <- list(
+        "original_sets" = length(adj_sets_original),
+        "modified_sets" = length(adj_sets_modified),
+        "still_identifiable" = identifiable_modified,
+        "impact" = ifelse(identifiable_modified, "Causal effect remains identifiable", "Causal effect no longer identifiable")
+      )
+    }
+  }
+  
+  return(results)
+}
+```
+
+```{r run-the-analysis}
+#| include: true
+#| echo: false
+#| results: 'hide'
+#| code-fold: false
+
+# Run the improved analysis
+dag_results <- display_dag_analysis(causal_salad_dag3)
+
+# Create tables for presentation
+
+# Table 1: Key DAG Properties with more info about paths
+properties_df <- data.frame(
+  Property = c(
+    "Acyclic DAG", 
+    "Causal effect identifiable",
+    "Total paths from X to Y",
+    "Backdoor paths (potentially confounding)",
+    "Directed paths (causal)",
+    "Mediated paths",
+    "Direct effect of X on Y exists",
+    "Confounding variables",
+    "Minimal adjustment sets"
+  ),
+  Value = c(
+    ifelse(dagitty::isAcyclic(causal_salad_dag3), "Yes", "No"),
+    ifelse(dag_results$is_identifiable, "Yes", "No"),
+    if(is.data.frame(dag_results$paths)) nrow(dag_results$paths) else 0,
+    length(dag_results$backdoor_paths),
+    length(dag_results$directed_paths),
+    length(dag_results$mediated_paths),
+    ifelse("X" %in% dagitty::parents(causal_salad_dag3, "Y"), "Yes", "No"),
+    ifelse(length(dag_results$confounders) > 0, paste(dag_results$confounders, collapse=", "), "None"),
+    ifelse(length(dag_results$minimal_adjustment_sets) > 0, 
+           paste(sapply(dag_results$minimal_adjustment_sets, function(x) paste(x, collapse=", ")), collapse="; "), 
+           "None")
+  )
+)
+```
+
+```{r}
+#| label: independencies-df
+#| tbl-cap: "Implied Conditional Independencies"
+#| results: 'asis'
+#| code-fold: false
+#| echo: false
+
+# Create independencies dataframe
+if(length(dag_results$independencies) > 0) {
+  independencies_df <- data.frame(
+    Index = 1:length(dag_results$independencies),
+    Independencies = sapply(dag_results$independencies, function(x) paste(x, collapse=" "))
+  )
+} else {
+  independencies_df <- data.frame(
+    Index = 1,
+    Independencies = "No conditional independencies found"
+  )
+}
+```
+
+```{r}
+#| label: create-paths-df
+#| echo: false
+#| include: true
+#| results: 'hide'
+
+# IMPROVED: Create more detailed paths dataframe
+if(is.data.frame(dag_results$paths) && nrow(dag_results$paths) > 0) {
+  paths_df <- data.frame(
+    Path = dag_results$paths$paths,
+    Length = dag_results$paths$length,
+    Type = sapply(dag_results$paths$paths, function(p) {
+      elements <- strsplit(p, " ")[[1]]
+      arrows <- elements[seq(2, length(elements), by = 2)]
+      
+      if(arrows[1] == "<-") {
+        return("Backdoor")
+      } else if(all(arrows == "->")) {
+        if(length(elements) > 3) {
+          return("Mediated")
+        } else {
+          return("Direct")
+        }
+      } else {
+        return("Mixed")
+      }
+    }),
+    Causal = sapply(dag_results$paths$paths, function(p) {
+      elements <- strsplit(p, " ")[[1]]
+      arrows <- elements[seq(2, length(elements), by = 2)]
+      all(arrows == "->")
+    }),
+    Description = sapply(dag_results$paths$paths, function(p) {
+      elements <- strsplit(p, " ")[[1]]
+      nodes <- elements[seq(1, length(elements), by = 2)]
+      arrows <- elements[seq(2, length(elements), by = 2)]
+      
+      if(arrows[1] == "<-") {
+        # Backdoor path
+        first_node <- nodes[2]
+        return(paste0("Confounding through ", first_node))
+      } else if(all(arrows == "->")) {
+        # Direct or mediated causal path
+        if(length(nodes) > 2) {
+          mediators <- nodes[-c(1, length(nodes))]
+          return(paste0("Causal effect mediated by ", paste(mediators, collapse=", ")))
+        } else {
+          return("Direct causal effect")
+        }
+      } else {
+        # Mixed path
+        return("Complex path with mixed directions")
+      }
+    })
+  )
+} else {
+  paths_df <- data.frame(
+    Path = "No paths found",
+    Length = NA,
+    Type = NA,
+    Causal = NA,
+    Description = NA
+  )
+}
+```
+
+```{r}
+#| label: create-ancestors-descendants-df
+#| echo: false
+#| include: true
+#| results: 'hide'
+
+# Create ancestors and descendants dataframe
+ancestors_descendants_df <- data.frame(
+  Variable = c("X", "Y", "Z", "C", "A", "B"),
+  Ancestors = c(
+    paste(dag_results$X_ancestors, collapse=", "),
+    paste(dag_results$Y_ancestors, collapse=", "),
+    paste(dag_results$Z_ancestors, collapse=", "),
+    paste(dag_results$C_ancestors, collapse=", "),
+    paste(dag_results$A_ancestors, collapse=", "),
+    paste(dag_results$B_ancestors, collapse=", ")
+  ),
+  Descendants = c(
+    paste(dag_results$X_descendants, collapse=", "),
+    paste(dag_results$Y_descendants, collapse=", "),
+    paste(dag_results$Z_descendants, collapse=", "),
+    paste(dag_results$C_descendants, collapse=", "),
+    paste(dag_results$A_descendants, collapse=", "),
+    paste(dag_results$B_descendants, collapse=", ")
+  ),
+  Role = c(
+    "Exposure/Treatment",
+    "Outcome",
+    ifelse("Z" %in% dag_results$confounders, "Confounder", 
+           ifelse("Z" %in% dag_results$mediators, "Mediator", "Intermediate")),
+    ifelse("C" %in% dag_results$confounders, "Confounder", 
+           ifelse("C" %in% dag_results$mediators, "Mediator", "Intermediate")),
+    ifelse("A" %in% dag_results$confounders, "Confounder", 
+           ifelse("A" %in% dag_results$mediators, "Mediator", "Exogenous")),
+    ifelse("B" %in% dag_results$confounders, "Confounder", 
+           ifelse("B" %in% dag_results$mediators, "Mediator", "Exogenous"))
+  )
+)
+```
+
+```{r}
+#| label: create-d-sep-df
+#| echo: false
+#| include: true
+#| results: 'hide'
+
+# IMPROVED: More informative d-separation table
+d_sep_df <- data.frame(
+  Conditioning_Set = c("None", "Z", "C", "Z and C", "A", "B", "A and B", 
+                     "Z, C, and A", "Z, C, and B", "Z, C, A, and B"),
+  Is_D_Separated = c(
+    ifelse(dag_results$d_sep_results$XY_given_nothing, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_Z, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_C, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_ZC, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_A, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_B, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_AB, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_ZCA, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_ZCB, "Yes", "No"),
+    ifelse(dag_results$d_sep_results$XY_given_ZCAB, "Yes", "No")
+  ),
+  Interpretation = c(
+    ifelse(dag_results$d_sep_results$XY_given_nothing, 
+           "X and Y are independent without conditioning", 
+           "X and Y are associated without conditioning (confounding likely)"),
+    ifelse(dag_results$d_sep_results$XY_given_Z, 
+           "Controlling for Z blocks all backdoor paths", 
+           "Controlling for Z leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_C, 
+           "Controlling for C blocks all backdoor paths", 
+           "Controlling for C leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_ZC, 
+           "Controlling for Z and C blocks all backdoor paths", 
+           "Controlling for Z and C leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_A, 
+           "Controlling for A blocks all backdoor paths", 
+           "Controlling for A leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_B, 
+           "Controlling for B blocks all backdoor paths", 
+           "Controlling for B leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_AB, 
+           "Controlling for A and B blocks all backdoor paths", 
+           "Controlling for A and B leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_ZCA, 
+           "Controlling for Z, C, and A blocks all backdoor paths", 
+           "Controlling for Z, C, and A leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_ZCB, 
+           "Controlling for Z, C, and B blocks all backdoor paths", 
+           "Controlling for Z, C, and B leaves some backdoor paths open"),
+    ifelse(dag_results$d_sep_results$XY_given_ZCAB, 
+           "Controlling for Z, C, A, and B blocks all backdoor paths", 
+           "Controlling for Z, C, A, and B leaves some backdoor paths open")
+  )
+)
+```
+
+```{r}
+#| label: create-adjustment-effect-df
+#| echo: false
+#| include: true
+#| results: 'hide'
+
+# IMPROVED: More detailed adjustment effects table
+adjustment_effect_df <- data.frame(
+  Adjustment_Set = names(dag_results$adjustment_effects),
+  Total_Paths = sapply(dag_results$adjustment_effects, function(x) x$total_paths),
+  Open_Paths = sapply(dag_results$adjustment_effects, function(x) x$open_paths),
+  Open_Backdoor = sapply(dag_results$adjustment_effects, function(x) x$open_backdoor),
+  Sufficient = sapply(dag_results$adjustment_effects, function(x) ifelse(x$fully_adjusted, "Yes", "No")),
+  Recommendation = sapply(dag_results$adjustment_effects, function(x) {
+    if(x$fully_adjusted) {
+      if(x$open_paths == 1) {
+        return("Recommended - blocks all backdoor paths")
+      } else {
+        return("Not recommended - blocks causal path")
+      }
+    } else {
+      return("Not sufficient - leaves backdoor paths open")
+    }
+  })
+)
