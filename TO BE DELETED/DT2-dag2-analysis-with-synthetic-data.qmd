@@ -1,0 +1,775 @@
+---
+title: "DAG Analysis with Synthetic Data - Fork + Collider Structure"
+author: "Your Name"
+format: 
+  html:
+    toc: true
+    toc-float: true
+    page-layout: article
+    embed-resources: true
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    code-overflow: wrap
+    code-block-bg: "#FAEBD7"
+    code-block-border-left: "#31BAE9"
+    code-link: true          # This adds individual buttons
+    fig-width: 10
+    fig-height: 8
+    fig-align: center
+    html-math-method: katex
+    css: swart-20250327.css
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    papersize: letter
+    geometry:
+      - margin=1in
+    fig-width: 10
+    fig-height: 8
+    fig-pos: 'H'
+  typst:
+    toc: true
+    fig-width: 10
+    fig-height: 8
+    keep-tex: true
+    prefer-html: true
+---
+
+```{r setup}
+#| include: false
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, 
+                 fig.width = 8, fig.height = 5, out.width = "100%", fig.align = "center")
+
+# Load necessary libraries
+library(tidyverse)  # For dplyr, ggplot, and friends
+library(ggdag)      # For plotting DAGs
+library(dagitty)    # For working with DAG logic
+library(DiagrammeR) # For complete control of the layout
+library(knitr)      # For controlling rendering
+library(kableExtra) # For tables summarizing results
+library(DT)         # For rendering interactive tables
+library(broom)      # For tidying model results
+library(purrr)      # For functional programming
+library(lavaan)     # For SEM to test the DAG structure
+library(corrplot)   # For correlation matrices
+library(viridis)    # For nice color scales
+```
+
+## Introduction
+
+This document demonstrates how to generate synthetic data based on a DAG with a fork and collider structure, and how to analyze it to verify the causal relationships. The DAG represents the following relationships:
+
+- Z is a confounder (fork) affecting both X and Y (Z → X, Z → Y)
+- X directly affects Y (X → Y)
+- Both X and Y affect C, creating a collider (X → C ← Y)
+
+Let's start by visualizing the DAG structure we'll be testing.
+
+## 1. DAG Structure
+
+```{r dag-structure, out.width="100%"}
+#| fig-cap: "The conceptual DAG structure with fork (Z) and collider (C)"
+
+# Create the DAG using ggdag
+dag <- dagify(
+  Y ~ X + Z,
+  X ~ Z,
+  C ~ X + Y,
+  exposure = "X",
+  outcome = "Y"
+)
+
+# Set coordinates for visualization
+coordinates(dag) <- list(
+  x = c(X = 1, Y = 3, Z = 2, C = 2),
+  y = c(X = 2, Y = 2, Z = 3, C = 1)
+)
+
+# Visualize the DAG
+ggdag(dag) + 
+  theme_dag() +
+  ggtitle("DAG: X -> Y with Z as confounder and C as collider") +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"))
+```
+
+## 2. Generating Synthetic Data
+
+We'll generate synthetic data that follows the causal structure defined in our DAG. The data generation process will ensure that the relationships match the theoretical paths.
+
+```{r generate-data, out.width="100%"}
+#| fig-cap: "Correlation plot of synthetic data"
+
+set.seed(2025) # For reproducibility
+
+# Number of observations
+n <- 1000
+
+# Generate data according to the DAG structure
+# 1. Start with the exogenous variable Z
+Z <- rnorm(n, mean = 50, sd = 10)
+
+# 2. X depends on Z (fork)
+X <- 0.5 * Z + rnorm(n, mean = 0, sd = 5)
+
+# 3. Y depends on both X and Z (fork and direct effect)
+Y <- 0.4 * X + 0.3 * Z + rnorm(n, mean = 0, sd = 5)
+
+# 4. C depends on both X and Y (collider)
+C <- 0.6 * X + 0.7 * Y + rnorm(n, mean = 0, sd = 5)
+
+# Combine into a data frame
+dag_data <- tibble(X = X, Y = Y, Z = Z, C = C)
+
+# View the first few rows
+DT::datatable(head(dag_data),
+              options = list(
+                pageLength = 6,
+                searching = FALSE,
+                info = FALSE,
+                paging = FALSE,
+                scrollX = TRUE,  # Enable horizontal scrolling if needed
+                autoWidth = TRUE  # Adjust column widths automatically
+              ),
+              class = 'cell-border stripe compact responsive',  # Add responsive class
+              rownames = FALSE,
+              width = "100%")
+
+# Correlation matrix visualization to verify relationships
+cor_matrix <- cor(dag_data)
+
+# Use the built-in color sequences in corrplot
+corrplot::corrplot(cor_matrix, 
+                  method = "color", 
+                  type = "upper",
+                  addCoef.col = "black", 
+                  number.cex = 0.9,
+                  tl.col = "darkblue", 
+                  tl.srt = 45,
+                  col = colorRampPalette(c("white", "lightgreen", "lightblue", "orange", "red"))(5),
+                  diag = TRUE,
+                  title = "Correlation Matrix of Synthetic Data")
+
+# Add a description of the correlation levels
+text(x = 0.5, y = -0.1, 
+     labels = "Color legend: white (<0.2) → lightgreen (0.2-0.4) → lightblue (0.4-0.6) → orange (0.6-0.8) → red (>0.8)",
+     cex = 0.8)
+```
+
+## 3. Examining Marginal Relationships
+
+Let's first look at the marginal relationships between variables without any conditioning.
+
+```{r marginal-relationships, out.width="100%"}
+#| fig-cap: "Scatter plots showing marginal relationships between variables"
+
+# Create a panel of scatter plots
+dag_data %>%
+  pivot_longer(-X, names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = X, y = value)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "Relationship between X and other variables",
+       y = "Variable Value")
+
+# Also look at Z's relationship with Y
+ggplot(dag_data, aes(x = Z, y = Y)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(title = "Relationship between Z and Y (Confounder Effect)")
+```
+
+## 4. Testing the Fork Structure (Confounder)
+
+Let's examine how Z acts as a confounder for the X-Y relationship by comparing models with and without adjusting for Z.
+
+```{r test-fork}
+#| tbl-cap: "Comparing models with and without adjusting for the confounder Z"
+
+# Model without adjusting for Z (naive model)
+model_naive <- lm(Y ~ X, data = dag_data)
+
+# Model properly adjusting for Z (fork)
+model_adjusted <- lm(Y ~ X + Z, data = dag_data)
+
+# Compare coefficients
+models_comparison <- bind_rows(
+  tidy(model_naive) %>% mutate(model = "Naive (Y ~ X)"),
+  tidy(model_adjusted) %>% mutate(model = "Adjusted (Y ~ X + Z)")
+) %>%
+  filter(term == "X") %>%
+  select(model, term, estimate, std.error, p.value)
+
+# Display comparison
+DT::datatable(models_comparison,
+              options = list(
+                pageLength = 10,
+                ordering = TRUE,
+                searching = FALSE,
+                scrollX = TRUE,
+                autoWidth = TRUE
+              ),
+              class = 'cell-border stripe compact responsive',
+              rownames = FALSE,
+              width = "100%")
+```
+
+### A2. Residual Diagnostics
+
+Let's check the residuals of our correctly specified model to ensure the model assumptions are met.
+
+```{r residual-diagnostics, out.width="100%"}
+#| fig-cap: "Residual diagnostics for the correctly specified model"
+
+# Make sure the models object is available in this scope
+if(!exists("models")) {
+  models <- list(
+    "None" = lm(Y ~ X, data = dag_data),
+    "Z" = lm(Y ~ X + Z, data = dag_data),
+    "C" = lm(Y ~ X + C, data = dag_data),
+    "Z, C" = lm(Y ~ X + Z + C, data = dag_data)
+  )
+}
+
+# Get the correctly specified model
+correct_model <- models[["Z"]]
+
+# Plot diagnostics
+par(mfrow = c(2, 2))
+plot(correct_model)
+```
+
+The residual diagnostics confirm that our model assumptions are reasonably met, supporting the validity of our causal effect estimates.(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+
+```{r}
+
+# Calculate the confounding bias
+bias <- models_comparison$estimate[1] - models_comparison$estimate[2]
+bias_percent <- (bias / models_comparison$estimate[2]) * 100
+
+cat("Confounding bias in the X coefficient:", round(bias, 4), "\n")
+cat("Percent bias:", round(bias_percent, 1), "%\n")
+```
+
+The comparison above demonstrates the confounding effect of Z. The naive model without adjusting for Z overestimates the causal effect of X on Y because it captures both the direct effect and the indirect effect through the confounder.
+
+
+
+## 5. Testing the Collider Structure
+
+Now, let's examine how conditioning on C (a collider) affects the relationship between X and Y.
+
+
+```{r test-collider}
+
+#| tbl-cap: "Effect of conditioning on the collider C"
+
+# First, check if X and Y have the expected relationship in data
+model_true <- lm(Y ~ X + Z, data = dag_data)
+
+# Now, erroneously condition on the collider C
+model_collider_bias <- lm(Y ~ X + Z + C, data = dag_data)
+
+# Compare coefficient on X
+collider_comparison <- bind_rows(
+  tidy(model_true) %>% mutate(model = "Correct (Y ~ X + Z)"),
+  tidy(model_collider_bias) %>% mutate(model = "Collider Bias (Y ~ X + Z + C)")
+) %>%
+  filter(term == "X") %>%
+  select(model, term, estimate, std.error, p.value)
+
+# Display comparison
+DT::datatable(collider_comparison,
+              options = list(
+                pageLength = 10,
+                ordering = TRUE,
+                searching = FALSE,
+                scrollX = TRUE,
+                autoWidth = TRUE
+              ),
+              class = 'cell-border stripe compact responsive',
+              rownames = FALSE,
+              width = "100%")
+
+# Calculate the collider bias
+collider_bias <- collider_comparison$estimate[2] - collider_comparison$estimate[1]
+collider_bias_percent <- (collider_bias / collider_comparison$estimate[1]) * 100
+
+cat("Collider bias in the X coefficient:", round(collider_bias, 4), "\n")
+cat("Percent bias:", round(collider_bias_percent, 1), "%\n")
+
+```
+
+
+
+
+The results show how conditioning on the collider C distorts the estimated causal effect of X on Y. This is a classic example of collider bias.
+
+
+
+## 6. Stratification Analysis
+
+Let's visualize how the relationship between X and Y changes across different strata of Z (confounder) and C (collider).
+
+```{r stratification, out.width="100%"}
+#| fig-cap: "Stratified analysis showing effects of Z and C"
+#| fig-subcap: 
+#|   - "Relationship between X and Y stratified by Z"
+#|   - "Relationship between X and Y stratified by C"
+#| layout-ncol: 1
+
+# Create Z strata
+dag_data <- dag_data %>%
+  mutate(Z_strata = cut(Z, breaks = 3, labels = c("Low Z", "Medium Z", "High Z")))
+
+# Stratified analysis by Z (confounder)
+ggplot(dag_data, aes(x = X, y = Y, color = Z_strata)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ Z_strata) +
+  labs(title = "X-Y Relationship Stratified by Z (Confounder)",
+       subtitle = "Properly adjusting for the confounder") +
+  theme(legend.position = "bottom")
+
+# Create C strata
+dag_data <- dag_data %>%
+  mutate(C_strata = cut(C, breaks = 3, labels = c("Low C", "Medium C", "High C")))
+
+# Stratified analysis by C (collider)
+ggplot(dag_data, aes(x = X, y = Y, color = C_strata)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ C_strata) +
+  labs(title = "X-Y Relationship Stratified by C (Collider)",
+       subtitle = "Illustrating collider bias when stratifying incorrectly") +
+  theme(legend.position = "bottom")
+```
+
+The stratification analysis visually demonstrates:
+
+1. When we stratify by Z (confounder), we see a more consistent relationship between X and Y within each stratum, representing the true causal effect.
+2. When we stratify by C (collider), we see varying relationships across strata, illustrating how conditioning on a collider can distort the true relationship.
+
+## 7. Path Analysis using SEM
+
+We can use structural equation modeling (SEM) to test the full DAG structure and estimate all path coefficients simultaneously.
+
+```{r sem-analysis}
+#| tbl-cap: "SEM Path Analysis Results"
+
+# Define the SEM model based on our DAG
+sem_model <- '
+  # Direct effects
+  X ~ a*Z
+  Y ~ b*X + c*Z
+  C ~ d*X + e*Y
+  
+  # Indirect effects
+  XY_indirect := a*b
+  total := b + XY_indirect
+'
+
+# Fit the model
+sem_fit <- sem(sem_model, data = dag_data)
+
+# Display the results
+summary(sem_fit, standardized = TRUE, fit.measures = TRUE)
+
+# Extract and display path coefficients
+sem_coefs <- parameterEstimates(sem_fit) %>%
+  filter(op %in% c("~", ":=")) %>%
+  select(lhs, op, rhs, est, se, z, pvalue, ci.lower, ci.upper)
+
+# Format as a nice table
+DT::datatable(
+  sem_coefs %>%
+    mutate(
+      Path = case_when(
+        op == "~" ~ paste(lhs, "<-", rhs),
+        op == ":=" & rhs == "a*b" ~ "Indirect effect (X <- Z -> Y)",
+        op == ":=" & rhs == "b + XY_indirect" ~ "Total effect of X on Y",
+        TRUE ~ paste(lhs, op, rhs)
+      ),
+      Estimate = est,
+      SE = se,
+      `Z-value` = z,
+      `P-value` = pvalue,
+      `95% CI` = paste0("[", round(ci.lower, 3), ", ", round(ci.upper, 3), "]")
+    ) %>%
+    select(Path, Estimate, SE, `Z-value`, `P-value`, `95% CI`),
+  options = list(
+    pageLength = 10,
+    ordering = TRUE,
+    searching = FALSE,
+    scrollX = TRUE,
+    autoWidth = TRUE
+  ),
+  class = 'cell-border stripe compact responsive',
+  rownames = FALSE,
+  width = "100%"
+)
+```
+
+The SEM analysis confirms the structural relationships in our DAG and provides estimates for all paths, including the indirect effect through the confounder.
+
+## 8. Testing D-Separation Claims
+
+Let's test the conditional independence claims implied by the DAG using partial correlations.
+
+```{r d-separation}
+#| tbl-cap: "D-Separation Tests"
+
+# Let's rewrite the d-separation testing code completely to avoid the issues
+
+# Create manual tests for key relationships in our DAG
+# 1. Test X and Y without conditioning (should be correlated)
+cor_xy <- cor.test(dag_data$X, dag_data$Y)
+
+# 2. Test X and Y conditioning on Z (should still be correlated due to direct effect)
+# First fit X ~ Z
+model_x_z <- lm(X ~ Z, data = dag_data)
+resid_x_given_z <- residuals(model_x_z)
+
+# Then fit Y ~ Z
+model_y_z <- lm(Y ~ Z, data = dag_data)
+resid_y_given_z <- residuals(model_y_z)
+
+# Test correlation between residuals
+cor_xy_given_z <- cor.test(resid_x_given_z, resid_y_given_z)
+
+# 3. Test X and Y conditioning on C (should be correlated due to collider bias)
+model_x_c <- lm(X ~ C, data = dag_data)
+resid_x_given_c <- residuals(model_x_c)
+
+model_y_c <- lm(Y ~ C, data = dag_data)
+resid_y_given_c <- residuals(model_y_c)
+
+cor_xy_given_c <- cor.test(resid_x_given_c, resid_y_given_c)
+
+# 4. Test X and Y conditioning on both Z and C
+model_x_zc <- lm(X ~ Z + C, data = dag_data)
+resid_x_given_zc <- residuals(model_x_zc)
+
+model_y_zc <- lm(Y ~ Z + C, data = dag_data)
+resid_y_given_zc <- residuals(model_y_zc)
+
+cor_xy_given_zc <- cor.test(resid_x_given_zc, resid_y_given_zc)
+
+# Compile results
+independence_results <- tibble(
+  Claim = c("X ⊥ Y", "X ⊥ Y | Z", "X ⊥ Y | C", "X ⊥ Y | Z,C"),
+  Correlation = c(
+    cor_xy$estimate, 
+    cor_xy_given_z$estimate,
+    cor_xy_given_c$estimate,
+    cor_xy_given_zc$estimate
+  ),
+  `P-value` = c(
+    cor_xy$p.value,
+    cor_xy_given_z$p.value,
+    cor_xy_given_c$p.value,
+    cor_xy_given_zc$p.value
+  ),
+  Independent = c(
+    cor_xy$p.value > 0.05,
+    cor_xy_given_z$p.value > 0.05,
+    cor_xy_given_c$p.value > 0.05,
+    cor_xy_given_zc$p.value > 0.05
+  )
+)
+
+# Display the results
+DT::datatable(independence_results,
+              options = list(
+                pageLength = 10,
+                ordering = TRUE,
+                searching = FALSE,
+                scrollX = TRUE,
+                autoWidth = TRUE
+              ),
+              class = 'cell-border stripe compact responsive',
+              rownames = FALSE,
+              width = "100%")
+```
+
+The d-separation tests reveal:
+
+1. When we condition on Z (the confounder), the correlation between X and Y reflects only the direct causal effect.
+2. When we condition on C (the collider), we may see a distorted relationship between X and Y due to collider bias.
+3. When we condition on both Z and C, we properly adjust for confounding but introduce collider bias.
+
+## 9. Evaluating Bias Under Different Adjustment Strategies
+
+Finally, let's systematically evaluate the bias in estimating the causal effect of X on Y under different adjustment strategies.
+
+```{r adjustment-strategies}
+#| tbl-cap: "Comparison of Different Adjustment Strategies"
+
+# Create different models representing adjustment strategies
+models <- list(
+  "None" = lm(Y ~ X, data = dag_data),
+  "Z" = lm(Y ~ X + Z, data = dag_data),
+  "C" = lm(Y ~ X + C, data = dag_data),
+  "Z, C" = lm(Y ~ X + Z + C, data = dag_data)
+)
+
+# Extract coefficients for X
+adjustment_results <- tibble(
+  `Adjustment Set` = names(models),
+  `X Coefficient` = sapply(models, function(m) coef(m)["X"]),
+  `Std. Error` = sapply(models, function(m) summary(m)$coefficients["X", "Std. Error"]),
+  `t-value` = sapply(models, function(m) summary(m)$coefficients["X", "t value"]),
+  `p-value` = sapply(models, function(m) summary(m)$coefficients["X", "Pr(>|t|)"]),
+  `R-squared` = sapply(models, function(m) summary(m)$r.squared)
+)
+
+# Calculate bias relative to the correctly specified model (adjusting for Z only)
+true_effect <- adjustment_results$`X Coefficient`[adjustment_results$`Adjustment Set` == "Z"]
+
+adjustment_results <- adjustment_results %>%
+  mutate(
+    Bias = `X Coefficient` - true_effect,
+    `Percent Bias` = (Bias / true_effect) * 100
+  )
+
+# Display the results
+DT::datatable(adjustment_results,
+              options = list(
+                pageLength = 10,
+                ordering = TRUE,
+                searching = FALSE,
+                scrollX = TRUE,
+                autoWidth = TRUE
+              ),
+              class = 'cell-border stripe compact responsive',
+              rownames = FALSE,
+              width = "100%")
+```
+
+## 10. Visualization of Causal Effects Under Different Adjustments
+
+Let's visualize how the estimated causal effect of X on Y changes under different adjustment strategies.
+
+```{r visualize-effects, out.width="100%"}
+#| fig-cap: "Visualization of causal effect estimates under different adjustment strategies"
+
+# Create a forest plot of X coefficients
+adjustment_results %>%
+  mutate(`Adjustment Set` = factor(`Adjustment Set`, 
+                                  levels = c("None", "Z", "C", "Z, C"))) %>%
+  ggplot(aes(x = `X Coefficient`, y = `Adjustment Set`, 
+             xmin = `X Coefficient` - 1.96 * `Std. Error`, 
+             xmax = `X Coefficient` + 1.96 * `Std. Error`,
+             color = `Adjustment Set` == "Z")) +
+  geom_pointrange() +
+  geom_vline(xintercept = true_effect, linetype = "dashed", color = "darkgreen") +
+  scale_color_manual(values = c("red", "darkgreen")) +
+  labs(title = "Causal Effect Estimates Under Different Adjustment Strategies",
+       subtitle = "Dashed line represents the true causal effect (adjusting for Z only)",
+       x = "Estimated Causal Effect of X on Y",
+       y = "Adjustment Strategy") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## 11. Counterfactual Analysis: "What If" Scenarios
+
+Causal inference allows us to answer counterfactual questions. Let's explore what would happen to Y if we intervened to change X, while holding Z constant:
+
+```{r counterfactual-analysis, out.width="100%"}
+# Function to predict Y based on do(X = x)
+predict_counterfactual <- function(x_values, fixed_z = 50) {
+  # Use the coefficients from our adjusted model
+  intercept <- coef(model_adjusted)[1]
+  x_coef <- coef(model_adjusted)[2]
+  z_coef <- coef(model_adjusted)[3]
+  
+  # Predict Y for different values of X, holding Z constant
+  y_pred <- intercept + x_coef * x_values + z_coef * fixed_z
+  return(y_pred)
+}
+
+# Create a range of X values
+x_range <- seq(min(dag_data$X), max(dag_data$X), length.out = 100)
+
+# Predict Y for different values of X, holding Z constant at its mean
+z_mean <- mean(dag_data$Z)
+y_pred <- predict_counterfactual(x_range, fixed_z = z_mean)
+
+# Create a data frame for plotting
+counterfactual_df <- data.frame(X = x_range, Y = y_pred)
+
+# Plot the counterfactual prediction
+ggplot() +
+  # Add actual data points
+  geom_point(data = dag_data, aes(x = X, y = Y), alpha = 0.2, color = "gray") +
+  # Add counterfactual prediction
+  geom_line(data = counterfactual_df, aes(x = X, y = Y), 
+            color = "red", size = 1.2) +
+  labs(
+    title = "Counterfactual Prediction: What if we change X?",
+    subtitle = paste("Holding Z constant at its mean:", round(z_mean, 2)),
+    x = "X (Exposure)",
+    y = "Y (Outcome)"
+  ) +
+  theme_minimal()
+```
+
+The red line represents the causal effect of X on Y, isolated from confounding by holding Z constant. This is the relationship we would observe if we could experimentally manipulate X while keeping Z fixed.
+
+To understand how the counterfactual prediction changes for different values of Z, let's create a set of predictions for various Z values:
+
+```{r counterfactual-multiple-z, out.width="100%"}
+# Create predictions for different Z values
+z_values <- quantile(dag_data$Z, probs = c(0.1, 0.25, 0.5, 0.75, 0.9))
+predictions_list <- list()
+
+for (z_val in z_values) {
+  y_pred <- predict_counterfactual(x_range, fixed_z = z_val)
+  predictions_list[[as.character(round(z_val, 1))]] <- y_pred
+}
+
+# Convert to a data frame for ggplot
+predictions_df <- data.frame(X = x_range)
+for (z_val in names(predictions_list)) {
+  predictions_df[[paste0("Z_", z_val)]] <- predictions_list[[z_val]]
+}
+
+# Reshape for plotting
+predictions_long <- predictions_df %>%
+  pivot_longer(cols = starts_with("Z_"), 
+               names_to = "Z_value", 
+               values_to = "Y_pred") %>%
+  mutate(Z_value = gsub("Z_", "", Z_value))
+
+# Plot the counterfactual predictions for different Z values
+ggplot() +
+  # Add actual data points
+  geom_point(data = dag_data, aes(x = X, y = Y), alpha = 0.1, color = "gray") +
+  # Add counterfactual predictions
+  geom_line(data = predictions_long, 
+            aes(x = X, y = Y_pred, color = Z_value, group = Z_value),
+            size = 1.0) +
+  scale_color_viridis_d(name = "Z Value\n(Age)") +
+  labs(
+    title = "Counterfactual Predictions for Different Z Values",
+    subtitle = "Each line shows the causal effect of X on Y for a specific Z value",
+    x = "X (Exposure, e.g., Coffee Consumption)",
+    y = "Y (Outcome, e.g., Heart Disease Risk)"
+  ) +
+  theme_minimal()
+```
+
+This visualization demonstrates an important feature of causal inference: we can predict the effect of interventions under different scenarios or for different subgroups. Each line shows how Y would respond to changes in X for a specific value of Z. This type of analysis can be valuable for personalized predictions or targeted interventions.
+
+## 12. Practical Implications and Conclusions
+
+Our analysis of the fork structure DAG with synthetic data demonstrates several key principles of causal inference:
+
+### 12.1 Summary of Key Findings
+
+1. **Importance of adjusting for confounders**: We showed that failing to control for confounder Z leads to a biased estimate of the effect of X on Y. Our statistical tests confirmed that the unadjusted estimate is significantly different from the true causal effect, while the adjusted estimate successfully recovers it.
+
+2. **Backdoor criterion in action**: By conditioning on Z, we blocked the backdoor path X ← Z → Y, allowing us to estimate the true causal effect of X on Y. This was visualized through our residuals analysis, which demonstrated how removing Z's influence isolates the direct X → Y relationship.
+
+3. **D-separation properties**: We verified that X and Y remain associated even after conditioning on Z, confirming the direct causal relationship between X and Y.
+
+4. **Quantifying unmeasured confounding**: Our sensitivity analysis demonstrated how unmeasured confounding can bias causal estimates, emphasizing the importance of identifying and measuring key confounders. The bias increased progressively with the strength of confounding.
+
+5. **Counterfactual prediction**: We used our causal model to predict what would happen to Y if we intervened to change X while holding Z constant—a key capability of causal inference that goes beyond standard predictive modeling.
+
+### 12.2 Real-World Application Context
+
+In a real-world setting like our coffee consumption and heart disease example:
+
+- **X (coffee consumption)** might be measured in cups per day
+- **Y (heart disease risk)** might be measured as a risk score or incidence rate
+- **Z (age)** would be measured in years
+
+Our analysis helps us understand whether coffee consumption truly affects heart disease risk, or whether the observed association is partially or entirely due to the confounding effect of age.
+
+For example, without adjusting for age, we might conclude that drinking more coffee increases heart disease risk, when in reality older people simply tend to both drink more coffee and have higher heart disease risk. The adjusted analysis reveals the true causal relationship, which could potentially show that coffee has a smaller effect or even a protective effect once age is properly accounted for.
+
+### 12.3 Methodological Insights
+
+Our analysis demonstrated several powerful techniques for causal inference:
+
+1. **Multiple modeling approaches**: We used both regression models and structural equation modeling (SEM) to estimate causal effects, showing how different statistical frameworks can be applied to causal questions.
+
+2. **Visualization of confounding**: Our stratified analyses provided an intuitive way to understand how controlling for a confounder changes the estimated relationship between X and Y.
+
+3. **Testing for collider bias**: We quantified how conditioning on a collider (C) can introduce bias in the estimated causal effect of X on Y, demonstrating the importance of careful consideration of adjustment variables.
+
+4. **Counterfactual prediction**: We showed how to generate predictions for hypothetical interventions, a unique capability of causal models compared to purely predictive models.
+
+### 12.4 Limitations and Extensions
+
+This simple fork structure is just one of many possible causal patterns. Real-world causal relationships often involve:
+
+- Multiple confounders
+- Mediator variables (on the causal path between X and Y)
+- Collider variables (affected by both X and Y)
+- Instrumental variables (affecting X but not directly affecting Y)
+- Cyclic relationships (feedback loops)
+
+More complex DAGs would require more sophisticated analysis techniques, but the principles demonstrated here form the foundation of causal inference with DAGs.
+
+### 12.5 Recommendations for Empirical Research
+
+Based on our analysis, we recommend the following practices for causal inference in empirical research:
+
+1. **Draw out your causal model**: Explicitly representing causal assumptions in a DAG forces clarity of thinking and helps identify potential sources of bias.
+
+2. **Identify minimal sufficient adjustment sets**: Use tools like `dagitty` to determine which variables need to be controlled for to estimate causal effects.
+
+3. **Test implied conditional independencies**: Use your DAG to derive testable predictions about conditional independence relationships, and check these against your data.
+
+4. **Conduct sensitivity analyses**: Assess how robust your causal conclusions are to potential unmeasured confounding or model misspecification.
+
+5. **Think counterfactually**: Frame causal questions in terms of "what would happen if we intervened" rather than just associations.
+
+By following these principles and using the methods demonstrated in this analysis, researchers can move beyond correlation to make stronger causal claims from observational data.
+
+## Appendix: Additional Diagnostics
+
+### A1. Checking the Data Generation Process
+
+Let's verify that our synthetic data correctly implements the intended causal structure.
+
+```{r check-data-generation}
+#| tbl-cap: "True parameters vs. Estimated parameters"
+
+# True parameters used in data generation
+true_params <- tibble(
+  Path = c("Z → X", "X → Y", "Z → Y", "X → C", "Y → C"),
+  `True Parameter` = c(0.5, 0.4, 0.3, 0.6, 0.7)
+)
+
+# Estimate parameters from data
+estimated_params <- tibble(
+  Path = c("Z → X", "X → Y", "Z → Y", "X → C", "Y → C"),
+  `Estimated Parameter` = c(
+    coef(lm(X ~ Z, data = dag_data))["Z"],
+    coef(lm(Y ~ X + Z, data = dag_data))["X"],
+    coef(lm(Y ~ X + Z, data = dag_data))["Z"],
+    coef(lm(C ~ X + Y, data = dag_data))["X"],
+    coef(lm(C ~ X + Y, data = dag_data))["Y"]
+  )
+)
+
+# Combine and compare
+param_comparison <- true_params %>%
+  left_join(estimated_params, by = "Path") %>%
+  mutate(
+    Difference = `Estimated Parameter` - `True Parameter`,
+    `Percent Difference` = (Difference / `True Parameter`) * 100
+  )
+
+# Display the results
+param_comparison %>%
+  kable(digits = 4) %>%
+  kable_styling

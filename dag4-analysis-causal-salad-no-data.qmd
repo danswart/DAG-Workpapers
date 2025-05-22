@@ -82,12 +82,12 @@ grViz("
     edge [penwidth=1.50, color=\"darkblue\", arrowsize=1.00]
     
     # Nodes with exact coordinates
-    X [label=\"X\", pos=\"1.0, 2.0!\", fontcolor=\"dodgerblue\"]
-    Y [label=\"Y\", pos=\"3.0, 2.0!\", fontcolor=\"dodgerblue\"]
+    X [label=\"X (treatment)\", pos=\"1.0, 2.0!\", fontcolor=\"dodgerblue\"]
+    Y [label=\"Y (outcome)\", pos=\"3.0, 2.0!\", fontcolor=\"dodgerblue\"]
     Z [label=\"Z\", pos=\"2.0, 3.0!\", fontcolor=\"red\"]
-    C [label=\"C\", pos=\"2.0, 1.0!\", fontcolor=\"orange\"]
+    C [label=\"C\", pos=\"2.0, 1.0!\", fontcolor=\"purple\"]
     A [label=\"A\", pos=\"1.0, 3.0!\", fontcolor=\"purple\"]
-    B [label=\"B\", pos=\"3.0, 3.0!\", fontcolor=\"green\"]
+    B [label=\"B\", pos=\"3.0, 3.0!\", fontcolor=\"purple\"]
     
     # Edges
     X -> Y

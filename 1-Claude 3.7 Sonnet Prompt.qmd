@@ -1,0 +1,68 @@
+---
+title: "Claude 3.7 Sonnet Prompt"
+subtitle: "for generating new DAG analysis code using synthetic data"
+author: "Dan Swart"
+format: 
+  html:
+    toc: true
+    toc-float: true
+    page-layout: article
+    embed-resources: true
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    code-overflow: wrap
+    code-block-bg: "#FAEBD7"
+    code-block-border-left: "#31BAE9"
+    code-link: true          # This adds individual buttons
+    fig-width: 10
+    fig-height: 8
+    fig-align: center
+    html-math-method: katex
+    css: swart-20250327.css
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    papersize: letter
+    geometry:
+      - margin=1in
+    fig-width: 10
+    fig-height: 8
+    fig-pos: 'H'
+  typst:
+    toc: true
+    fig-width: 10
+    fig-height: 8
+    keep-tex: true
+    prefer-html: true
+---
+
+## FIRST SUBMIT THE DAG ANALYSIS TEMPLATE CODE:
+
+"I am first transmitting to you the fully operational DAG-analysis-with-synthetic-data code to use as a TEMPLATE for my preferences for style, formatting and color as you process the new DAG.  I will submit to you the conceptional DAG code in the next prompt.   It is not required that you mimic the template code precisely. You may need to alter it based on the structural characteristics of the new DAG analysis under consideration. I'm uploading this fully functional code to you BEFORE uploading the conceptual DAG code (to be actualized with the synthetic data you produce). Here's the TEMPLATE to keep in your memory as you process the upcoming conceptual DAG code.  Please follow and include ALL the items in the TEMPLATE because it contains items that may NOT already exist in the conceptual code.  Here it is:     "
+
+
+
+## SECOND SUBMIT THE CONCEPTIONAL DAG CODE:
+
+"Here is the conceptual DAG code.  Provide new code to analyze the conceptual DAG using synthetic data that you generate appropriate for the DAG under consideration.  Rules for composition of new code:
+
+
+1. For DAG visualizations, use clean variable names without the descriptive labels '(Root Cause)'.  'Collider' or '(Confounder)' are fine.
+2. ALWAYS use the DT() package, not the kable/kableExtra packages.
+3. ALWAYS "CONTINUE FROM ENDPOINT"
+4. Check the current ending point of the artifact
+5. Add only new content from that exact point forward
+6. Never repeat any existing sections, code chunks, or YAML headers
+7. Maintain unique chunk labels for any new code blocks
+8. Keep the same document structure and styling
+9. I expect a long, continuous Quarto document suitable for me to copy and paste into a new Quarto document
+10. Maintain the same styling, color and theme in the new code as found in the template code
+11. ALWAYS round to 3 decimal places, NOT 4.
+12. Copy the YAML verbatim from the template with the exception of the title:  parameter.  That should reflect the new code matter.
+13. For code structure and sequence, Follow the template exactly
+14. Copy the DiagrammeR code precisely with regard to font family, font size, node colors, and positions of the nodes.
+
+Here is the new DAG conceptual code:     "
+

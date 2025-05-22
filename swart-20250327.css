@@ -17,6 +17,30 @@
 @import url('https://fonts.googleapis.com/css2?family=Schoolbell');    /* swart */
 
 
+.table {
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 1rem;
+}
+
+.dataTables_wrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.responsive-plot {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+figure {
+  width: 100%;
+  max-width: 100%;
+}
+
+
 .callout-tip, .callout-caution, .callout-important, .callout-warning {
   display: block;
   padding: 1em;
