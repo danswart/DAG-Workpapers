@@ -40,7 +40,7 @@ format:
 
 ## FIRST SUBMIT THE DAG ANALYSIS TEMPLATE CODE:
 
-"I am first transmitting to you the fully operational DAG-analysis-with-synthetic-data code to use as a TEMPLATE for my preferences for style, formatting and color as you process the new DAG.  I will submit to you the conceptional DAG code in the next prompt.   It is not required that you mimic the template code precisely. You may need to alter it based on the structural characteristics of the new DAG analysis under consideration. I'm uploading this fully functional code to you BEFORE uploading the conceptual DAG code (to be actualized with the synthetic data you produce). Here's the TEMPLATE to keep in your memory as you process the upcoming conceptual DAG code.  Please follow and include ALL the items in the TEMPLATE because it contains items that may NOT already exist in the conceptual code.  Here it is:     "
+"I am first transmitting to you the fully operational DAG-analysis-with-synthetic-data code to use as a TEMPLATE for my preferences for section headings, style, formatting and color as you process the new DAG.  I will submit to you the conceptional DAG code in the next prompt.   It is not required that you mimic the template code precisely. You may need to alter it based on the structural characteristics of the new DAG analysis under consideration. I'm uploading this fully functional code to you BEFORE uploading the conceptual DAG code (to be actualized with the synthetic data you produce). Here's the TEMPLATE to keep in your memory as you process the upcoming conceptual DAG code.  Please follow and include ALL the items in the TEMPLATE because it contains items that may NOT already exist in the conceptual code.  Here it is:     "
 
 
 
@@ -62,7 +62,8 @@ format:
 11. ALWAYS round to 3 decimal places, NOT 4.
 12. Copy the YAML verbatim from the template with the exception of the title:  parameter.  That should reflect the new code matter.
 13. For code structure and sequence, Follow the template exactly
-14. Copy the DiagrammeR code precisely with regard to font family, font size, node colors, and positions of the nodes.
+14. Copy the DiagrammeR code precisely with regard to font family, font size, node colors, and node positions.  
+15. Include an analysis to determine if Simpson's Paradox is evident in the data
 
 Here is the new DAG conceptual code:     "
 
