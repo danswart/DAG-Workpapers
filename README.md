@@ -1,1 +1,1 @@
-Conceptual and analytical explorations of various DAGs,
+Conceptual and analytic explorations of various DAGs,
