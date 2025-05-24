@@ -1,6 +1,6 @@
 ---
 title: "DAG Analysis - HIV-Stroke Causal Structure with Unmeasured Confounder"
-author: "Dan Swart"
+author: "Dan Swart and Claude 4.0"
 format: 
   html:
     toc: true
@@ -86,8 +86,8 @@ grViz("
     # Nodes with exact coordinates - spread out more
     X [label=\"HIV\", pos=\"4.0, 3.0!\", fontcolor=\"dodgerblue\"]
     Y [label=\"Stroke\", pos=\"6.0, 3.0!\", fontcolor=\"dodgerblue\"]
-    A [label=\"Smoking\", pos=\"1.0, 6.0!\", fontcolor=\"black\"]
-    B [label=\"Age\", pos=\"1.0, 1.0!\", fontcolor=\"purple\"]
+    A [label=\"Smoking\", pos=\"1.0, 6.0!\", fontcolor=\"red\"]
+    B [label=\"Age\", pos=\"1.0, 1.0!\", fontcolor=\"red\"]
     U [label=\"Unmeasured Confounder\", pos=\"5.0, 6.0!\", fontcolor=\"red\"]
     
     # Edges

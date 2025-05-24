@@ -1,6 +1,6 @@
 ---
 title: "DAG Analysis: Confounded Causal Structure with Synthetic Data"
-author: "Dan Swart"
+author: "Dan Swart and Claude 3.7 Sonnet"
 format: 
   html:
     toc: true
@@ -123,7 +123,7 @@ confounded_dag_viz <- grViz("
     X [label=\"HIV\", pos=\"3.0, 3.0!\", fontcolor=\"dodgerblue\"]
     Y [label=\"Stroke\", pos=\"5.0, 3.0!\", fontcolor=\"dodgerblue\"]
     A [label=\"Smoking\", pos=\"1.0, 5.0!\", fontcolor=\"red\"]
-    B [label=\"Age\", pos=\"1.0, 1.0!\", fontcolor=\"orange\"]
+    B [label=\"Age\", pos=\"1.0, 1.0!\", fontcolor=\"red\"]
     
     # Edges with coefficients from our synthetic data
     X -> Y [label=\"0.6\"]
@@ -2073,7 +2073,11 @@ Think of confounding like trying to measure the effect of a new fertilizer on pl
 The key insight is that confounding doesn't just add noise—it systematically biases our estimates in ways that can completely mislead our understanding of causal relationships. Only through careful causal thinking and appropriate analytical methods can we hope to extract valid causal inferences from observational data.
 
 
-## 24. Session Information for Reproducibility
+This analysis demonstrates that confounded causal structures require sophisticated analytical approaches to obtain valid causal inferences. Unlike experimental designs where randomization eliminates confounding, observational studies must carefully identify and adjust for all confounding pathways. The DAG framework provides essential guidance for this process, helping researchers understand the sources of bias and develop appropriate analytical strategies.
+
+
+
+## Session Information for Reproducibility
 
 ```{r}
 #| label: session-info-confounded
@@ -2083,5 +2087,5 @@ The key insight is that confounding doesn't just add noise—it systematically b
 sessionInfo()
 ```
 
-This analysis demonstrates that confounded causal structures require sophisticated analytical approaches to obtain valid causal inferences. Unlike experimental designs where randomization eliminates confounding, observational studies must carefully identify and adjust for all confounding pathways. The DAG framework provides essential guidance for this process, helping researchers understand the sources of bias and develop appropriate analytical strategies.
+
 
